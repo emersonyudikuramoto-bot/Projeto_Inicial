@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+
+  <style>
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th, td { border: 1px solid #999; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    #uploadSection, #tableSection { display: none; }
+  </style>
+</head>
+
+<body>
+
+  <div id="introSection">
+    <h1 id="mainTitle">Cálculo do DIFAL:</h1>
+
+  <p>O <strong>DIFAL (Diferencial de Alíquota)</strong> é um conceito relacionado à tributação do ICMS (Imposto sobre Circulação de Mercadorias e Serviços) no Brasil.
+    Ele se aplica quando há uma operação de circulação de mercadorias de USO E CONSUMO e IMOBILIZADO entre as empresas de diferentes estados.</p>
+
+  <p><strong>OBSERVAÇÃO:</strong> No arquivo .TXT, informe os números das chaves das notas separadas com ponto e vírgula ";" e que sejam de desejo para o cálculo do DIFAL.</p> 
+
+  <p>Abaixo selecione os XMLs e o bloco de notas (.TXT) com as chaves de referências:</p>
+  </div>
+  
+  <!-- Seção de Upload -->
+  <div id="uploadSection">
+    <label>Selecione os XMLs de NF-e:</label><br>
+    <input type="file" id="xmlFiles" multiple accept=".xml"><br><br>
+
+    <label>Selecione o arquivo .TXT das chaves:</label><br>
+    <input type="file" id="txtFile" accept=".txt"><br><br>
+
+    <button onclick="processFiles()">Processar e Ver Tabela</button>
+  </div>
+
+  <!-- Seção da Tabela -->
+  <div id="tableSection">
+    <h2>Resultado do Cálculo - DIFAL:</h2>
+    <P>A coluna <strong>"ATENÇÃO!"</strong> informa os possíveis NCM's dos itens com redução de sua base de cálculo e alíquotas no <strong>Estado PR</strong>.</P>
+    <p>Caso deseje exportar a tabela abaixo, clique no botão "Exportar CSV":</p>
+    <button onclick="exportCSV()">Exportar CSV</button><br><br>
+
+    <table id="nfeTable">
+      <thead>
+        <tr>
+          <th>Chave da NFE</th>
+          <th>Número da NFE</th>
+          <th>Nome do Item</th>
+          <th>NCM</th>
+          <th>CFOP</th>
+          <th>Orig</th>
+          <th>Valor do Produto</th>
+          <th>Desconto</th>
+          <th>Frete</th>
+          <th>IPI</th>
+          <th>Base</th>
+          <th>UF</th>
+          <th>% ICMS</th>
+          <th>% ICMS Interestadual</th>
+          <th>Difal</th>
+          <th>ATENÇÃO!</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+
+    document.getElementById('uploadSection').style.display = 'block';
+
+    let xmlDataList = [];
+    let chaveList = [];
+
+    function processFiles() {
+      const xmlFiles = document.getElementById('xmlFiles').files;
+      const txtFile = document.getElementById('txtFile').files[0];
+
+      if (!xmlFiles.length || !txtFile) {
+        alert('Selecione os arquivos XMLs e o arquivo TXT!');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        chaveList = e.target.result.split(';').map(c => c.trim());
+
+        let filesProcessed = 0;
+
+        for (let file of xmlFiles) {
+          const xmlReader = new FileReader();
+          xmlReader.onload = function(event) {
+            xmlDataList.push(event.target.result);
+            filesProcessed++;
+            if (filesProcessed === xmlFiles.length) {
+              showTable();
+            }
+          };
+          xmlReader.readAsText(file);
+        }
+      };
+      reader.readAsText(txtFile);
+    }
+
+    function showTable() {
+      document.getElementById('uploadSection').style.display = 'none';
+      document.getElementById('introSection').style.display = 'none';
+      document.getElementById('mainTitle').innerText = 'Cálculo do DIFAL:';
+      document.getElementById('tableSection').style.display = 'block';
+
+      loadTable();
+
+      const tabelaHTML = document.getElementById('tableSection').innerHTML;
+      abrirNovaAbaComTabela(tabelaHTML);
+    }
+
+    function parseXML(xmlString) {
+      return (new window.DOMParser()).parseFromString(xmlString, "text/xml");
+
+    }
+
+    function extractDataFromXML(xml) {
+      const chave = xml.querySelector('infNFe').getAttribute('Id').replace('NFe', '');
+      const numero = xml.querySelector('ide > nNF')?.textContent || '';
+      const uf = xml.querySelector('emit > enderEmit > UF')?.textContent || '';
+      const ufDestinatario = xml.querySelector('dest > enderDest > UF')?.textContent || '';      
+      const produtos = xml.querySelectorAll('det');
+      const icmsInterestadual = 12; // default percentual ICMS interestadual
+
+      const tabelaUF = {
+        'AC': {'AC': '-', 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.07, 'PA': 0.12, 'PB': 0.12, 'PR': 0.07, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.07, 'RN': 0.12, 'RS': 0.07, 'RO': 0.12, 'RR': 0.12, 'SC': 0.07, 'SP': 0.07, 'SE': 0.12, 'TO': 0.12},
+        'AL': {'AC': 0.12, 'AL': '-', 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.07, 'PA': 0.12, 'PB': 0.12, 'PR': 0.07, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.07, 'RN': 0.12, 'RS': 0.07, 'RO': 0.12, 'RR': 0.12, 'SC': 0.07, 'SP': 0.07, 'SE': 0.12, 'TO': 0.12},
+        'AP': {'AC': 0.12, 'AL': 0.12, 'AP': '-', 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.07, 'PA': 0.12, 'PB': 0.12, 'PR': 0.07, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.07, 'RN': 0.12, 'RS': 0.07, 'RO': 0.12, 'RR': 0.12, 'SC': 0.07, 'SP': 0.07, 'SE': 0.12, 'TO': 0.12},
+        'AM': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': '-', 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'BA': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': '-', 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'CE': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': '-', 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'DF': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': '-', 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'ES': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': '-', 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'GO': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': '-', 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'MA': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': '-', 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'MT': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': '-', 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'MS': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': '-', 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'MG': {'AC': 0.07, 'AL': 0.07, 'AP': 0.07, 'AM': 0.07, 'BA': 0.07, 'CE': 0.07, 'DF': 0.07, 'ES': 0.07, 'GO': 0.07, 'MA': 0.07, 'MT': 0.07, 'MS': 0.07, 'MG': '-', 'PA': 0.07, 'PB': 0.07, 'PR': 0.12, 'PE': 0.07, 'PI': 0.07, 'RJ': 0.12, 'RN': 0.07, 'RS': 0.12, 'RO': 0.07, 'RR': 0.07, 'SC': 0.12, 'SP': 0.12, 'SE': 0.07, 'TO': 0.07},
+        'PA': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': '-', 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'PB': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': '-', 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'PR': {'AC': 0.07, 'AL': 0.07, 'AP': 0.07, 'AM': 0.07, 'BA': 0.07, 'CE': 0.07, 'DF': 0.07, 'ES': 0.07, 'GO': 0.07, 'MA': 0.07, 'MT': 0.07, 'MS': 0.07, 'MG': 0.12, 'PA': 0.07, 'PB': 0.07, 'PR': '-', 'PE': 0.07, 'PI': 0.07, 'RJ': 0.12, 'RN': 0.07, 'RS': 0.12, 'RO': 0.07, 'RR': 0.07, 'SC': 0.12, 'SP': 0.12, 'SE': 0.07, 'TO': 0.07},
+        'PE': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': '-', 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'PI': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': '-', 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'RJ': {'AC': 0.07, 'AL': 0.07, 'AP': 0.07, 'AM': 0.07, 'BA': 0.07, 'CE': 0.07, 'DF': 0.07, 'ES': 0.07, 'GO': 0.07, 'MA': 0.07, 'MT': 0.07, 'MS': 0.07, 'MG': 0.12, 'PA': 0.07, 'PB': 0.07, 'PR': 0.12, 'PE': 0.07, 'PI': 0.07, 'RJ': '-', 'RN': 0.07, 'RS': 0.12, 'RO': 0.07, 'RR': 0.07, 'SC': 0.12, 'SP': 0.12, 'SE': 0.07, 'TO': 0.07},
+        'RN': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': '-', 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'RS': {'AC': 0.07, 'AL': 0.07, 'AP': 0.07, 'AM': 0.07, 'BA': 0.07, 'CE': 0.07, 'DF': 0.07, 'ES': 0.07, 'GO': 0.07, 'MA': 0.07, 'MT': 0.07, 'MS': 0.07, 'MG': 0.12, 'PA': 0.07, 'PB': 0.07, 'PR': 0.12, 'PE': 0.07, 'PI': 0.07, 'RJ': 0.12, 'RN': 0.07, 'RS': '-', 'RO': 0.07, 'RR': 0.07, 'SC': 0.12, 'SP': 0.12, 'SE': 0.07, 'TO': 0.07},
+        'RO': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': '-', 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'RR': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': '-', 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': 0.12},
+        'SC': {'AC': 0.07, 'AL': 0.07, 'AP': 0.07, 'AM': 0.07, 'BA': 0.07, 'CE': 0.07, 'DF': 0.07, 'ES': 0.07, 'GO': 0.07, 'MA': 0.07, 'MT': 0.07, 'MS': 0.07, 'MG': 0.12, 'PA': 0.07, 'PB': 0.07, 'PR': 0.12, 'PE': 0.07, 'PI': 0.07, 'RJ': 0.12, 'RN': 0.07, 'RS': 0.12, 'RO': 0.07, 'RR': 0.07, 'SC': '-', 'SP': 0.12, 'SE': 0.07, 'TO': 0.07},
+        'SP': {'AC': 0.07, 'AL': 0.07, 'AP': 0.07, 'AM': 0.07, 'BA': 0.07, 'CE': 0.07, 'DF': 0.07, 'ES': 0.07, 'GO': 0.07, 'MA': 0.07, 'MT': 0.07, 'MS': 0.07, 'MG': 0.12, 'PA': 0.07, 'PB': 0.07, 'PR': 0.12, 'PE': 0.07, 'PI': 0.07, 'RJ': 0.12, 'RN': 0.07, 'RS': 0.12, 'RO': 0.07, 'RR': 0.07, 'SC': 0.12, 'SP': '-', 'SE': 0.07, 'TO': 0.07},
+        'SE': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': '-', 'TO': 0.12},
+        'TO': {'AC': 0.12, 'AL': 0.12, 'AP': 0.12, 'AM': 0.12, 'BA': 0.12, 'CE': 0.12, 'DF': 0.12, 'ES': 0.12, 'GO': 0.12, 'MA': 0.12, 'MT': 0.12, 'MS': 0.12, 'MG': 0.12, 'PA': 0.12, 'PB': 0.12, 'PR': 0.12, 'PE': 0.12, 'PI': 0.12, 'RJ': 0.12, 'RN': 0.12, 'RS': 0.12, 'RO': 0.12, 'RR': 0.12, 'SC': 0.12, 'SP': 0.12, 'SE': 0.12, 'TO': '-'},      
+        };
+
+      const ncmList = ["85444900", "84213990", "84662010", "85362000", "27030000", "28369919", "28369919", "30021010", "30021020", "30021030", "30022010", "30022020", "30029020", "30051010", "30063010", "30063020", "30066000", "34011190", "34012010", "35079019", "35079019", "35079019", "35079019", "35079019", "35079019", "35079040", "35079041", "35079041", "35079041", "35079041", "35079041", "35079041", "35079041", "35079041", "35079041", "35079041", "35079041", "38249029", "39172300", "39173290", "39251000", "44101110", "44101120", "44101121", "44101129", "44101190", "44111290", "44111391", "44111399", "44119210", "44119290", "44119390", "44219000", "67120000", "68101900", "68109900", "70132100", "70133100", "72085200", "72131000", "72131000", "72132000", "72149100", "72149910", "72149990", "72162100", "72163100", "72163100", "72163200", "72163200", "73041100", "73041900", "73044900", "73051900", "73071920", "73071920", "73079900", "73079900", "73082000", "73089010", "73090010", "73101090", "73181500", "73181600", "73182100", "73261900", "73269000", "73269090", "73269090", "76082090", "76129090", "82011000", "82012000", "82013000", "82014000", "82015000", "82016000", "82073000", "84021100", "84021200", "84021900", "84022000", "84041010", "84042000", "84061000", "84068100", "84068200", "84101100", "84101200", "84101300", "84109000", "84128000", "84137010", "84137080", "84137090", "84137090", "84137090", "84138100", "84143019", "84148010", "84148011", "84148012", "84148012", "84148013", "84148019", "84148032", "84148033", "84148038", "84148039", "84148090", "84161000", "84162010", "84169000", "84171010", "84171020", "84171090", "84172000", "84178010", "84178020", "84178090", "84186910", "84186920", "84186999", "84193100", "84193200", "84193900", "84194010", "84194090", "84195010", "84195021", "84195022", "84195029", "84195090", "84196000", "84198190", "84198911", "84198919", "84198920", "84198930", "84198940", "84198999", "84201010", "84201090", "84209100", "84211110", "84211190", "84211290", "84211910", "84211990", "84211990", "84222000", "84223010", "84223021", "84223022", "84223023", "84223029", "84224010", "84224020", "84224090", "84232000", "84232000", "84233011", "84233019", "84233090", "84238110", "84238190", "84238200", "84242000", "84243010", "84243020", "84243030", "84243090", "84243090", "84244100", "84244900", "84248990", "84251100", "84251910", "84251910", "84251990", "84252000", "84253110", "84253990", "84261100", "84262000", "84263000", "84269900", "84271019", "84272010", "84272090", "84279000", "84281000", "84281000", "84282010", "84282090", "84283100", "84283200", "84283300", "84283930", "84283990", "84284000", "84291190", "84292090", "84294000", "84295190", "84295900", "84306990", "84321000", "84322100", "84323190", "84323910", "84324000", "84324100", "84324200", "84328000", "84328000", "84329000", "84332010", "84332090", "84333000", "84333000", "84334000", "84334000", "84335300", "84335911", "84335919", "84335990", "84335990", "84336010", "84336021", "84336029", "84341000", "84342010", "84342090", "84351000", "84361000", "84362100", "84362900", "84368000", "84371000", "84378010", "84378090", "84381000", "84382011", "84382019", "84382090", "84383000", "84386000", "84388020", "84388090", "84391010", "84391010", "84391020", "84391030", "84391090", "84393010", "84393020", "84393030", "84393090", "84399100", "84401011", "84401019", "84411010", "84411090", "84412000", "84413010", "84413090", "84414000", "84418000", "84423010", "84431190", "84431200", "84431310", "84431321", "84431329", "84431390", "84431400", "84431500", "84431790", "84431990", "84433910", "84439191", "84439192", "84439199", "84440010", "84440020", "84451120", "84451190", "84451200", "84451300", "84451910", "84451921", "84451922", "84451923", "84451926", "84451927", "84451929", "84451929", "84451929", "84452000", "84453010", "84453090", "84454018", "84454019", "84454021", "84454029", "84454031", "84454039", "84454040", "84454090", "84459030", "84459040", "84459090", "84461010", "84461090", "84462100", "84462900", "84463010", "84463040", "84463090", "84471100", "84471200", "84472021", "84472029", "84472029", "84472029", "84479010", "84479020", "84479090", "84481110", "84481120", "84481190", "84481900", "84481900", "84490010", "84490020", "84490080", "84502010", "84502090", "84511000", "84511000", "84512910", "84513091", "84513099", "84514010", "84514021", "84514029", "84514090", "84515010", "84515020", "84518000", "84518000", "84518000", "84518000", "84522110", "84522120", "84522190", "84522910", "84522923", "84522924", "84522925", "84522929", "84531010", "84531090", "84531090", "84531090", "84538000", "84541000", "84542010", "84542090", "84543010", "84543020", "84543090", "84549010", "84552110", "84552190", "84552210", "84552290", "84553010", "84553020", "84553090", "84559000", "84559000", "84559000", "84563011", "84563019", "84563090", "84571000", "84572010", "84572090", "84581110", "84581191", "84581199", "84581910", "84581990", "84589100", "84589900", "84591000", "84592199", "84592900", "84593100", "84593900", "84594000", "84595100", "84595900", "84596100", "84601100", "84601900", "84602100", "84602900", "84603100", "84603900", "84604011", "84604019", "84609011", "84609012", "84609019", "84609090", "84612010", "84612090", "84613010", "84613090", "84614099", "84615010", "84615020", "84615090", "84619010", "84619090", "84619090", "84619090", "84621090", "84622100", "84622900", "84623100", "84623910", "84623990", "84624100", "84624900", "84629191", "84629199", "84629910", "84629920", "84629990", "84631010", "84631090", "84632010", "84633000", "84639010", "84639090", "84641000", "84642010", "84642021", "84642029", "84642090", "84649090", "84651000", "84651000", "84659110", "84659120", "84659190", "84659211", "84659219", "84659290", "84659290", "84659290", "84659310", "84659390", "84659400", "84659400", "84659511", "84659592", "84659600", "84659900", "84659900", "84659900", "84659900", "84659900", "84659900", "84663000", "84669100", "84669200", "84669319", "84669320", "84669330", "84669340", "84669350", "84669420", "84669430", "84669490", "84669490", "84671110", "84671190", "84671900", "84671900", "84672999", "84678100", "84678100", "84678900", "84678900", "84678900", "84681000", "84682000", "84682000", "84688010", "84688090", "84714921", "84714951", "84714952", "84714957", "84716061", "84716062", "84716080", "84733010", "84735090", "84741000", "84742010", "84742090", "84743900", "84743900", "84748010", "84748090", "84748090", "84748090", "84751000", "84752100", "84752990", "84771011", "84771019", "84771021", "84771029", "84771091", "84771099", "84772010", "84773090", "84774010", "84774090", "84775100", "84775911", "84775919", "84775990", "84778010", "84781090", "84781090", "84781090", "84781090", "84781090", "84781090", "84781090", "84791010", "84794000", "84798110", "84798190", "84798922", "84798940", "84798999", "84798999", "84803000", "84804100", "84804910", "84804990", "84805000", "84806000", "84807100", "84807900", "84818093", "84818093", "84818095", "84818097", "84818099", "84818099", "84834090", "84834090", "85011010", "85043400", "85044010", "85044090", "85044090", "85073010", "85074000", "85078000", "85141010", "85142011", "85142020", "85143090", "85143090", "85149000", "85149000", "85149000", "85149000", "85152100", "85153110", "85158010", "85158090", "85173020", "85173061", "85173062", "85173069", "85269100", "85279011", "85279019", "85279019", "85279019", "85291019", "85291090", "85299019", "85321000", "85381000", "85389090", "85433000", "85437099", "85437099", "85437099", "86071919", "86090000", "87011000", "87019100", "87019200", "87019590", "87021000", "87021000", "87029090", "87041000", "87060010", "87087090", "87162000", "88022010", "88023010", "88031000", "88032000", "88033000", "89059000", "90159090", "90159090", "90241090", "90283090", "90303990", "94060010", "94060091", "94060092", "96032100"];
+
+      let itens = [];
+
+      produtos.forEach(prod => {
+        const prodNode = prod.querySelector('prod');
+        const impostoNode = prod.querySelector('imposto');
+
+        const vProd = parseFloat(prodNode.querySelector('vProd')?.textContent || 0);
+        const vDesc = parseFloat(prodNode.querySelector('vDesc')?.textContent || 0);
+        const vFrete = parseFloat(prodNode.querySelector('vFrete')?.textContent || 0);
+        const vIPI = parseFloat(prod.querySelector('IPI > IPITrib > vIPI')?.textContent || 0);
+
+        // Correção: Extrair o 'orig' de dentro do ICMS do produto
+        const orig = impostoNode.querySelector('ICMS orig')?.textContent || '';
+
+        const base = vProd - vDesc + vFrete + vIPI;
+
+        let percICMS = parseFloat(
+          impostoNode.querySelector('ICMS00 > pICMS')?.textContent ||
+          impostoNode.querySelector('ICMS20 > pICMS')?.textContent ||
+          impostoNode.querySelector('ICMS10 > pICMS')?.textContent ||
+          impostoNode.querySelector('ICMS30 > pICMS')?.textContent ||
+          ''
+        ) || null;
+
+        let percInter;
+        if (percICMS) {
+          percInter = ''; // Se há ICMS, não define percentual interestadual
+        } else if (['1', '2', '3', '8'].includes(orig)) {
+          percInter = 4; // Regra: orig 1, 2, 6 ou 7 sem ICMS -> 4%
+        } else {
+          percInter = icmsInterestadual; // Default: 12%
+        }
+
+        let difal = 0;
+        if (percICMS === 12) {
+          difal = base * 0.0932;
+        } else if (percICMS === 4) {
+          difal = base * 0.1925;
+        } else if (icmsInterestadual === 4) {
+          difal = (base * 0.1925); 
+        } else if (percICMS == null) {
+          difal = (base * 0.0932);
+        }
+
+        const ncm = prodNode.querySelector('NCM')?.textContent || '';
+        const atencao = ncmList.includes(ncm) ? 'Possível Redução da Base de Cálculo/Alíquota' : 
+        '';
+
+        itens.push({
+          chave,
+          numero,
+          nomeItem: prodNode.querySelector('xProd')?.textContent || '',
+          ncm: prodNode.querySelector('NCM')?.textContent || '',
+          cfop: prodNode.querySelector('CFOP')?.textContent || '',
+          orig,
+          vProd,
+          vDesc,
+          vFrete,
+          vIPI,
+          base,
+          uf,
+          percICMS: percICMS ? percICMS.toFixed(2) + '%' : '',
+          percInter: percInter ? percInter.toFixed(2) + '%' : '',
+          difal: difal.toFixed(2),
+          atencao
+        });
+      });
+
+      return itens;
+    }
+
+    function loadTable() {
+      const tbody = document.querySelector('#nfeTable tbody');
+      tbody.innerHTML = '';
+
+      let totalVProd = 0;
+      let totalVDesc = 0;
+      let totalVFrete = 0;
+      let totalVIPI = 0;
+      let totalBase = 0;
+      let totalDifal = 0;
+
+      xmlDataList.forEach(xmlStr => {
+        const xml = parseXML(xmlStr);
+        const dados = extractDataFromXML(xml);
+
+        dados.forEach(item => {
+          if (chaveList.includes(item.chave)) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${item.chave}</td>
+              <td>${item.numero}</td>
+              <td>${item.nomeItem}</td>
+              <td>${item.ncm}</td>
+              <td>${item.cfop}</td>
+              <td>${item.orig}</td>
+              <td>${item.vProd.toFixed(2)}</td>
+              <td>${item.vDesc.toFixed(2)}</td>
+              <td>${item.vFrete.toFixed(2)}</td>
+              <td>${item.vIPI.toFixed(2)}</td>
+              <td>${item.base.toFixed(2)}</td>
+              <td>${item.uf}</td>
+              <td>${item.percICMS}</td>
+              <td>${item.percInter || ''}</td>
+              <td>${item.difal}</td>
+              <td>${item.atencao}</td>
+            `;
+            tbody.appendChild(tr);
+            // Acumulando os totais
+            totalVProd += item.vProd;
+            totalVDesc += item.vDesc;
+            totalVFrete += item.vFrete;
+            totalVIPI += item.vIPI;
+            totalBase += item.base;
+            totalDifal += parseFloat(item.difal);
+          }
+        });
+      });
+   
+      // Totalização
+      const trTotal = document.createElement('tr');
+      trTotal.innerHTML = `
+        <td colspan="6"><strong>Total</strong></td>
+        <td><strong>${totalVProd.toFixed(2)}</strong></td>
+        <td><strong>${totalVDesc.toFixed(2)}</strong></td>
+        <td><strong>${totalVFrete.toFixed(2)}</strong></td>
+        <td><strong>${totalVIPI.toFixed(2)}</strong></td>
+        <td><strong>${totalBase.toFixed(2)}</strong></td>
+        <td colspan="3"></td>
+        <td><strong>${totalDifal.toFixed(2)}</strong></td>
+      `;
+      tbody.appendChild(trTotal);
+
+    }
+
+    function exportCSV() {
+      const rows = Array.from(document.querySelectorAll('table tr'));
+      const csv = rows.map(row => {
+        return Array.from(row.querySelectorAll('th, td'))
+          .map(cell => `"${cell.innerText}"`)
+          .join(';');
+      }).join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.setAttribute('href', url);
+      a.setAttribute('download', 'nfe_export.csv');
+      a.click();
+    }
+  </script>
+  <footer>
+     By. Yudi - Versão 2.4
+  </footer>
+
+</body>
+</html>
